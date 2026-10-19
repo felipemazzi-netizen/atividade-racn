@@ -1,0 +1,46 @@
+services:
+  mqtt:
+    image: eclipse-mosquitto:2.0.22
+    volumes:
+      - ./mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mqtt_data:/mosquitto/data
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "localhost", "-t", "healthcheck", "-m", "ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  api:
+    build: .
+    environment:
+      MQTT_HOST: mqtt
+      DB_PATH: /app/data/torno.sqlite3
+    ports: ["5000:5000"]
+    volumes: ["api_data:/app/data"]
+    depends_on:
+      mqtt:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health',timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  simulator:
+    build: .
+    command: ["python", "simulator/simulator.py"]
+    environment:
+      MQTT_HOST: mqtt
+    depends_on:
+      mqtt:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    profiles: ["https"]
+    command: ["tunnel", "--no-autoupdate", "--url", "http://api:5000"]
+    depends_on:
+      api:
+        condition: service_healthy
+volumes:
+  mqtt_data:
+  api_data:
